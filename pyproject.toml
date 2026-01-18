@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "factgap-pr-reviewer"
+version = "0.1.0"
+description = "Contextual PR Reviewer with RAG over code and Notion docs"
+authors = [{name = "FactGap", email = "dev@factgap.ai"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "fastmcp>=2.0.0",
+    "supabase>=2.0.0",
+    "openai>=1.0.0",
+    "langchain-text-splitters>=0.0.1",
+    "notion-client>=2.0.0",
+    "PyGithub>=2.0.0",
+    "pydantic>=2.0.0",
+    "click>=8.0.0",
+    "python-dotenv>=1.0.0",
+    "tiktoken>=0.5.0",
+    "psycopg2-binary>=2.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+factgap-mcp = "factgap.cli.mcp:main"
+factgap-pr-analyze = "factgap.cli.pr_analyze:main"
+factgap-pr-chat = "factgap.cli.pr_chat:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["factgap*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

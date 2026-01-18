@@ -1,0 +1,17 @@
+{
+  "name": "factgap-pr-reviewer",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=apps/web",
+    "build:web": "npm run build --workspace=apps/web",
+    "dev:api": "cd apps/api && uvicorn app.main:app --reload --port 8000",
+    "dev": "concurrently \"npm run dev:web\" \"npm run dev:api\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}
