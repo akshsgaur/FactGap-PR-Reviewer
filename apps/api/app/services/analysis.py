@@ -1,5 +1,7 @@
 """PR analysis and chat service"""
 
+import os
+import time
 import logging
 from typing import List, Dict, Any, Optional
 
@@ -9,7 +11,16 @@ from app.config import get_settings
 from app.database import get_db
 from app.services.github_app import get_github_service
 
+# New RAG modules
+from app.services.rag.retrieval import ScopedRetriever
+from app.services.rag.reranker import Reranker
+from app.services.rag.embeddings import EmbedFunction
+from app.services.rag.logging import RAGLogger
+
 logger = logging.getLogger(__name__)
+
+# Feature flag for new RAG pipeline
+ENABLE_NEW_RAG = os.getenv("FACTGAP_ENABLE_NEW_RAG", "true").lower() == "true"
 
 
 class AnalysisService:
@@ -26,6 +37,17 @@ class AnalysisService:
             self.settings.supabase_url,
             self.settings.supabase_service_role_key
         )
+
+        # New RAG components
+        if ENABLE_NEW_RAG:
+            embed_fn = EmbedFunction(self.openai_client)
+            self.retriever = ScopedRetriever(self.supabase, embed_fn.embed)
+            self.reranker = Reranker(self.openai_client)
+            self.rag_logger = RAGLogger()
+        else:
+            self.retriever = None
+            self.reranker = None
+            self.rag_logger = None
 
     def _embed_text(self, text: str) -> List[float]:
         """Generate embedding for text"""
@@ -115,9 +137,9 @@ class AnalysisService:
             )
             head_sha = pr["head"]["sha"]
 
-            # Retrieve evidence for the question
+            # Retrieve evidence for the question (with head_sha for new RAG)
             evidence = await self._retrieve_chat_evidence(
-                user_id, repo_full_name, pr_number, question
+                user_id, repo_full_name, pr_number, question, head_sha
             )
 
             # Generate answer
@@ -208,8 +230,83 @@ class AnalysisService:
         repo_full_name: str,
         pr_number: int,
         question: str,
+        head_sha: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Retrieve evidence for chat question"""
+        # Use new RAG pipeline if enabled
+        if ENABLE_NEW_RAG and self.retriever and self.reranker:
+            return await self._retrieve_with_new_rag(
+                user_id=user_id,
+                query=question,
+                repo=repo_full_name,
+                pr_number=pr_number,
+                head_sha=head_sha,
+                top_k=8,
+            )
+
+        # Fallback to legacy retrieval
+        return await self._retrieve_chat_evidence_legacy(
+            user_id, repo_full_name, pr_number, question
+        )
+
+    async def _retrieve_with_new_rag(
+        self,
+        user_id: str,
+        query: str,
+        repo: Optional[str] = None,
+        pr_number: Optional[int] = None,
+        head_sha: Optional[str] = None,
+        top_k: int = 8,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve evidence using new RAG pipeline with intent routing and reranking"""
+        start_time = time.time()
+
+        # Retrieve candidates with intent-based routing
+        candidates, intent_result, retrieval_stats = await self.retriever.retrieve(
+            query=query,
+            user_id=user_id,
+            repo=repo,
+            pr_number=pr_number,
+            head_sha=head_sha,
+            top_k=40,
+        )
+
+        # Rerank with diversity constraints
+        rerank_result = await self.reranker.rerank(
+            query=query,
+            candidates=candidates,
+            top_k=top_k,
+            head_sha=head_sha,
+        )
+
+        latency_ms = (time.time() - start_time) * 1000
+
+        # Log retrieval
+        if self.rag_logger:
+            self.rag_logger.log_retrieval(
+                query=query,
+                intent_result=intent_result,
+                retrieval_stats=retrieval_stats,
+                rerank_result=rerank_result,
+                latency_ms=latency_ms,
+            )
+            self.rag_logger.log_chunks(
+                chunks=rerank_result.chunks,
+                rerank_scores=rerank_result.rerank_scores,
+                rerank_reasons=rerank_result.rerank_reasons,
+            )
+
+        # Convert ScoredChunk objects to dicts for compatibility
+        return [sc.chunk for sc in rerank_result.chunks]
+
+    async def _retrieve_chat_evidence_legacy(
+        self,
+        user_id: str,
+        repo_full_name: str,
+        pr_number: int,
+        question: str,
+    ) -> List[Dict[str, Any]]:
+        """Legacy retrieve evidence for chat question (fallback)"""
         evidence = []
         question_lower = question.lower()
 

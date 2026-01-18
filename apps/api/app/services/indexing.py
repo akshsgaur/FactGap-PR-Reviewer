@@ -1,9 +1,9 @@
 """Indexing service for repositories and Notion pages"""
 
+import os
 import logging
-import hashlib
-from typing import List, Dict, Any, Optional
-from datetime import datetime
+from typing import List, Dict, Optional
+from datetime import datetime, timezone
 
 import openai
 from langchain_text_splitters import (
@@ -16,7 +16,15 @@ from app.database import get_db
 from app.services.github_app import get_github_service
 from app.services.notion_oauth import get_notion_service
 
+# New RAG modules
+from app.services.rag.enrichment import ChunkEnricher, extract_symbol_from_chunk
+from app.services.rag.embeddings import BatchEmbedder, compute_content_hash
+
 logger = logging.getLogger(__name__)
+
+# Feature flags for new RAG features
+ENABLE_ENRICHMENT = os.getenv("FACTGAP_ENABLE_ENRICHMENT", "true").lower() == "true"
+ENABLE_BATCH_EMBED = os.getenv("FACTGAP_ENABLE_BATCH_EMBED", "true").lower() == "true"
 
 # Language mappings for code splitter
 EXTENSION_TO_LANGUAGE = {
@@ -59,17 +67,88 @@ class IndexingService:
             self.settings.supabase_service_role_key
         )
 
+        # New RAG components
+        self.enricher = ChunkEnricher() if ENABLE_ENRICHMENT else None
+        self.batch_embedder = BatchEmbedder(
+            self.openai_client,
+            self.supabase if ENABLE_BATCH_EMBED else None
+        ) if ENABLE_BATCH_EMBED else None
+
     def _compute_hash(self, content: str) -> str:
         """Compute SHA256 hash of content"""
-        return hashlib.sha256(content.strip().lower().encode()).hexdigest()
+        # Use new compute_content_hash for consistency
+        return compute_content_hash(content)
 
     def _embed_text(self, text: str) -> List[float]:
         """Generate embedding for text"""
+        if self.batch_embedder:
+            return self.batch_embedder.embed_single(text)
         response = self.openai_client.embeddings.create(
             model="text-embedding-3-small",
             input=text
         )
         return response.data[0].embedding
+
+    def _enrich_code_content(
+        self,
+        content: str,
+        path: str,
+        language: Optional[str],
+        start_line: Optional[int] = None,
+        end_line: Optional[int] = None,
+        full_file_content: Optional[str] = None,
+    ) -> str:
+        """Enrich code content with contextual prefix (if enabled)"""
+        if not self.enricher:
+            return content
+
+        # Try to extract symbol from chunk
+        symbol = extract_symbol_from_chunk(content, language)
+
+        enriched = self.enricher.enrich_code_chunk(
+            content=content,
+            path=path,
+            language=language,
+            start_line=start_line,
+            end_line=end_line,
+            full_file_content=full_file_content,
+            symbol=symbol,
+        )
+        return enriched.enriched_content
+
+    def _enrich_diff_content(
+        self,
+        content: str,
+        path: Optional[str] = None,
+    ) -> str:
+        """Enrich diff content with contextual prefix (if enabled)"""
+        if not self.enricher:
+            return content
+
+        enriched = self.enricher.enrich_diff_chunk(
+            content=content,
+            path=path,
+        )
+        return enriched.enriched_content
+
+    def _enrich_notion_content(
+        self,
+        content: str,
+        title: Optional[str] = None,
+        url: Optional[str] = None,
+        last_edited_time: Optional[str] = None,
+    ) -> str:
+        """Enrich Notion content with contextual prefix (if enabled)"""
+        if not self.enricher:
+            return content
+
+        enriched = self.enricher.enrich_notion_chunk(
+            content=content,
+            title=title,
+            url=url,
+            last_edited_time=last_edited_time,
+        )
+        return enriched.enriched_content
 
     def _get_code_splitter(self, language: Optional[Language]) -> RecursiveCharacterTextSplitter:
         """Get appropriate code splitter"""
@@ -123,8 +202,9 @@ class IndexingService:
                     chunks = splitter.split_text(content)
 
                     # Track line numbers
-                    lines = content.split("\n")
                     current_line = 1
+
+                    lang_str = ext.lstrip(".") if ext else None
 
                     for chunk in chunks:
                         # Calculate line range
@@ -133,9 +213,8 @@ class IndexingService:
                         end_line = current_line + chunk_lines - 1
                         current_line = end_line + 1
 
-                        # Compute hash and embedding
+                        # Compute hash (on original content for identity)
                         content_hash = self._compute_hash(chunk)
-                        embedding = self._embed_text(chunk)
 
                         # Check if chunk already exists
                         existing = self.supabase.table("rag_chunks").select("id").eq(
@@ -148,13 +227,26 @@ class IndexingService:
                             stats["skipped"] += 1
                             continue
 
-                        # Insert chunk
+                        # Enrich content for embedding (if enabled)
+                        enriched_content = self._enrich_code_content(
+                            content=chunk,
+                            path=path,
+                            language=lang_str,
+                            start_line=start_line,
+                            end_line=end_line,
+                            full_file_content=content,
+                        )
+
+                        # Embed the enriched content
+                        embedding = self._embed_text(enriched_content)
+
+                        # Insert chunk (store original content, embed enriched)
                         self.supabase.table("rag_chunks").insert({
                             "user_id": user_id,
                             "repo": repo_full_name,
                             "source_type": "code",
                             "path": path,
-                            "language": ext.lstrip(".") if ext else None,
+                            "language": lang_str,
                             "start_line": start_line,
                             "end_line": end_line,
                             "content": chunk,
@@ -171,7 +263,7 @@ class IndexingService:
 
             # Update status to complete
             await self.db.update_repo_indexing_status(
-                repo_id, "complete", datetime.utcnow()
+                repo_id, "complete", datetime.now(timezone.utc)
             )
 
             logger.info(f"Indexed {repo_full_name}: {stats}")
@@ -210,10 +302,13 @@ class IndexingService:
             splitter = self._get_doc_splitter()
             chunks = splitter.split_text(content)
 
+            page_title = page_data.get("title")
+            page_url = page_data.get("url")
+            last_edited = page_data.get("last_edited_time")
+
             for chunk in chunks:
                 try:
                     content_hash = self._compute_hash(chunk)
-                    embedding = self._embed_text(chunk)
 
                     # Check if chunk already exists
                     existing = self.supabase.table("rag_chunks").select("id").eq(
@@ -226,14 +321,24 @@ class IndexingService:
                         stats["skipped"] += 1
                         continue
 
+                    # Enrich content for embedding (if enabled)
+                    enriched_content = self._enrich_notion_content(
+                        content=chunk,
+                        title=page_title,
+                        url=page_url,
+                        last_edited_time=last_edited,
+                    )
+
+                    embedding = self._embed_text(enriched_content)
+
                     # Insert chunk
                     self.supabase.table("rag_chunks").insert({
                         "user_id": user_id,
                         "repo": "notion",
                         "source_type": "notion",
                         "source_id": notion_page_id,
-                        "url": page_data["url"],
-                        "last_edited_time": page_data.get("last_edited_time"),
+                        "url": page_url,
+                        "last_edited_time": last_edited,
                         "content": chunk,
                         "content_hash": content_hash,
                         "embedding": embedding,
@@ -295,7 +400,6 @@ class IndexingService:
             for chunk in diff_chunks:
                 try:
                     content_hash = self._compute_hash(chunk)
-                    embedding = self._embed_text(chunk)
 
                     existing = self.supabase.table("rag_chunks").select("id").eq(
                         "user_id", user_id
@@ -306,6 +410,10 @@ class IndexingService:
                     if existing.data:
                         stats["skipped"] += 1
                         continue
+
+                    # Enrich diff content for embedding
+                    enriched_content = self._enrich_diff_content(chunk)
+                    embedding = self._embed_text(enriched_content)
 
                     self.supabase.table("rag_chunks").insert({
                         "user_id": user_id,
@@ -345,8 +453,8 @@ class IndexingService:
                 splitter = self._get_code_splitter(language)
                 chunks = splitter.split_text(content)
 
-                lines = content.split("\n")
                 current_line = 1
+                lang_str = ext.lstrip(".") if ext else None
 
                 for chunk in chunks:
                     try:
@@ -356,7 +464,17 @@ class IndexingService:
                         current_line = end_line + 1
 
                         content_hash = self._compute_hash(chunk)
-                        embedding = self._embed_text(chunk)
+
+                        # Enrich code content for embedding
+                        enriched_content = self._enrich_code_content(
+                            content=chunk,
+                            path=path,
+                            language=lang_str,
+                            start_line=start_line,
+                            end_line=end_line,
+                            full_file_content=content,
+                        )
+                        embedding = self._embed_text(enriched_content)
 
                         existing = self.supabase.table("rag_chunks").select("id").eq(
                             "user_id", user_id
