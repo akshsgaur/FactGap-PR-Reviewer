@@ -1,6 +1,6 @@
 # FactGap PR Reviewer
 
-🤖 **Contextual PR Reviewer with RAG** that closes the Fact Gap between code changes and documentation.
+**Contextual PR Reviewer with RAG** that closes Fact Gap between code changes and documentation.
 
 <div align="center">
 
@@ -10,22 +10,22 @@
 [![Type: Next.js](https://img.shields.io/badge/Next.js-14.2+-black.svg)](https://nextjs.org/)
 
 **Two Deployment Options:**
-- 🚀 **CLI/GitHub Actions** - Self-hosted, single repository
-- ☁️ **SaaS Platform** - Multi-tenant web application
+- **CLI/GitHub Actions** - Self-hosted, single repository
+- **SaaS Platform** - Multi-tenant web application
 
 </div>
 
-## ✨ What It Does
+## What It Does
 
 FactGap PR Reviewer provides intelligent code reviews by combining:
 
-- **🔍 RAG over PR context** (diff + changed files)
-- **📚 RAG over Notion documentation** ("how we do things here")
-- **🎯 Fact Gap enforcement** - Every hard claim requires evidence
-- **💬 Smart chat** - Ask questions with `@code-reviewer` in PR comments
-- **🏗️ MCP server** - Centralized context gateway
+- **RAG over PR context** (diff + changed files)
+- **RAG over Notion documentation** ("how we do things here")
+- **Fact Gap enforcement** - Every hard claim requires evidence
+- **Smart chat** - Ask questions with `@code-reviewer` in PR comments
+- **MCP server** - Centralized context gateway
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Option 1: CLI/GitHub Actions (Single Repo)
 
@@ -68,15 +68,15 @@ npm install
 npm run dev
 ```
 
-## 🎯 Core Features
+## Core Features
 
-### 🤖 Automatic PR Analysis
+### Automatic PR Analysis
 - **Risk flags** with evidence citations
 - **Review focus checklist** based on context
 - **Relevant snippets** from code, docs, and Notion
 - **Fact Gap compliance** - all claims verified
 
-### 💬 Interactive PR Chat
+### Interactive PR Chat
 ```
 @code-reviewer How does this authentication flow work?
 ```
@@ -84,13 +84,13 @@ npm run dev
 - **Smart source prioritization** - PR overlay for implementation, docs for policy
 - **Real-time responses** via GitHub webhooks
 
-### 🔒 Fact Gap Rules
+### Fact Gap Rules
 1. **Hard claims require citations** - "must", "violates", "policy" → evidence required
 2. **Freshness awareness** - SHA timestamps for code, edit times for docs
 3. **Permission safety** - Only accessible sources, secrets redacted
 4. **Low noise** - One analysis comment, replies only when mentioned
 
-## 🏗️ Architecture
+## Architecture
 
 ### CLI/GitHub Actions Flow
 ```
@@ -112,9 +112,9 @@ Web Frontend (Next.js) ↔ API Backend (FastAPI)
                  Supabase (Multi-tenant)
 ```
 
-## 📊 RAG Pipeline
+## RAG Pipeline
 
-### 1. **Indexing Phase**
+### 1. Indexing Phase
 ```python
 # Multi-source content ingestion
 PR diff → chunks → embeddings → database
@@ -123,7 +123,7 @@ Repo docs → chunks → embeddings → database
 Notion pages → chunks → embeddings → database
 ```
 
-### 2. **Retrieval Phase**
+### 2. Retrieval Phase
 ```python
 # Semantic search with citations
 query → embedding → vector search → ranked results
@@ -132,7 +132,7 @@ implementation_questions → PR_overlay
 policy_questions → docs + notion
 ```
 
-### 3. **Generation Phase**
+### 3. Generation Phase
 ```python
 # AI-powered or retrieval-only
 evidence → GPT-4 analysis → citation verification
@@ -140,7 +140,7 @@ evidence → GPT-4 analysis → citation verification
 hard_claims → citation_check → compliance_warnings
 ```
 
-## 🛠️ MCP Server Tools
+## MCP Server Tools
 
 ### Indexing Tools
 - `pr_index_build` - Index PR diff and changed files
@@ -158,7 +158,7 @@ hard_claims → citation_check → compliance_warnings
 - `review_verify_citations` - Verify citations in markdown
 - `redact` - Redact secrets from text
 
-## 📋 Citation Formats
+## Citation Formats
 
 ### Repository Citations
 ```
@@ -170,7 +170,7 @@ src/main.py:123-125 @ abc123def456
 https://notion.so/page-id (edited: 2024-01-15T10:30:00.000Z)
 ```
 
-## 🧪 Development
+## Development
 
 ### Running Tests
 ```bash
@@ -197,21 +197,21 @@ factgap-pr-analyze
 echo '{"comment":{"body":"@code-reviewer How does this work?"}}' | factgap-pr-chat
 ```
 
-## 🔒 Security
+## Security
 
 - **Service Role Key**: Full database access - keep secure
 - **Secret Redaction**: Automatic pattern detection and removal
 - **Permission Safety**: Only indexes accessible content
 - **No Background Workers**: GitHub Actions only, no persistent processes
 
-## 📚 Documentation
+## Documentation
 
 - **[AGENTS.md](./AGENTS.md)** - Detailed agent architecture
 - **[CLI Usage](./docs/cli.md)** - Command-line interface guide
 - **[API Reference](./docs/api.md)** - MCP server API docs
 - **[Deployment Guide](./docs/deployment.md)** - Production deployment
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
@@ -219,7 +219,7 @@ echo '{"comment":{"body":"@code-reviewer How does this work?"}}' | factgap-pr-ch
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
@@ -227,10 +227,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 <div align="center">
 
-**Built with ❤️ by the FactGap team**
+**Built with care by the FactGap team**
 
-[⭐ Star this repo](https://github.com/yourusername/factgap-pr-reviewer) • 
-[🐛 Report Issues](https://github.com/yourusername/factgap-pr-reviewer/issues) • 
-[💬 Discussions](https://github.com/yourusername/factgap-pr-reviewer/discussions)
+[Star this repo](https://github.com/yourusername/factgap-pr-reviewer) • 
+[Report Issues](https://github.com/yourusername/factgap-pr-reviewer/issues) • 
+[Discussions](https://github.com/yourusername/factgap-pr-reviewer/discussions)
 
 </div>
