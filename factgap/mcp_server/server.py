@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from factgap.db.supabase_client import get_supabase_manager, ChunkRecord
 from factgap.chunking.splitters import CodeChunker, DiffChunker, DocumentChunker
+from factgap.chunking import SemanticChunker, load_config
 from factgap.notion.client import NotionClient
 
 # Configure logging to stderr
@@ -77,21 +78,36 @@ def redact_secrets(text: str) -> str:
 
 @mcp.tool()
 async def pr_index_build(request: PRIndexRequest) -> Dict[str, Any]:
-    """Build and index PR overlay chunks"""
+    """Build and index PR overlay chunks with optimized chunking"""
     try:
         manager = get_manager()
         repo = os.getenv("GITHUB_REPOSITORY", "unknown/repo")
         
-        chunks = []
+        # Load optimized chunking configuration
+        config = load_config()
+        chunker = SemanticChunker(config)
+        repo_root = Path(request.repo_root)
         
-        # Chunk diff hunks
+        chunks = []
+        total_chunks = 0
+        
+        # Always index diff hunks (source_type="diff")
         diff_chunker = DiffChunker()
         diff_chunks = diff_chunker.chunk_diff(request.diff_text)
         
         for chunk_text, start_line, end_line in diff_chunks:
             if not chunk_text.strip():
                 continue
-                
+            
+            # Create context header for diff
+            header = chunker.create_context_header(
+                source_type='diff',
+                path='unknown',
+                hunk_header=f"lines {start_line}-{end_line}"
+            )
+            
+            enriched_content = header + chunk_text
+            
             chunk_record = ChunkRecord(
                 repo=repo,
                 pr_number=request.pr_number,
@@ -102,72 +118,74 @@ async def pr_index_build(request: PRIndexRequest) -> Dict[str, Any]:
                 symbol=None,
                 start_line=start_line,
                 end_line=end_line,
-                content=redact_secrets(chunk_text),
+                content=redact_secrets(enriched_content),
                 content_hash=manager.compute_content_hash(chunk_text),
-                embedding=await manager.embed_text(chunk_text),
+                embedding=await manager.embed_text(enriched_content),
             )
             chunks.append(chunk_record)
+            total_chunks += 1
         
-        # Chunk changed files
-        code_chunker = CodeChunker()
+        # Prioritize changed files for indexing
+        prioritized_files = chunker.prioritize_changed_files(
+            request.changed_files,
+            config.max_changed_files_indexed
+        )
         
-        for file_info in request.changed_files:
+        # Process changed files with limits
+        for file_info in prioritized_files:
+            if total_chunks >= config.max_total_chunks_per_run:
+                logger.info(f"Reached chunk limit ({config.max_total_chunks_per_run}), stopping")
+                break
+            
             file_path = file_info.get("path")
             if not file_path:
                 continue
-                
-            full_path = Path(request.repo_root) / file_path
-            if not full_path.exists():
-                logger.warning(f"File not found: {full_path}")
-                continue
             
-            try:
-                with open(full_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
+            full_path = repo_root / file_path
+            
+            # Use optimized chunking with path filtering
+            file_chunks = chunker.chunk_file(
+                full_path,
+                source_type='code',
+                relative_to=repo_root
+            )
+            
+            for chunk_data in file_chunks:
+                if total_chunks >= config.max_total_chunks_per_run:
+                    break
                 
-                file_chunks = code_chunker.chunk_file(file_path, content)
+                # Extract original content for hashing
+                original_content = chunk_data['original_content']
                 
-                for chunk_text, start_line, end_line in file_chunks:
-                    if not chunk_text.strip():
-                        continue
-                    
-                    # Try to extract symbol (function/class name) - basic heuristic
-                    symbol = None
-                    if start_line and end_line:
-                        lines = content.split('\n')[start_line-1:end_line]
-                        for line in lines:
-                            line = line.strip()
-                            if line.startswith(('def ', 'class ', 'function ', 'const ')):
-                                symbol = line.split('(')[0].split()[1]
-                                break
-                    
-                    chunk_record = ChunkRecord(
-                        repo=repo,
-                        pr_number=request.pr_number,
-                        head_sha=request.head_sha,
-                        source_type="code",
-                        path=file_path,
-                        language=Path(file_path).suffix[1:] if Path(file_path).suffix else None,
-                        symbol=symbol,
-                        start_line=start_line,
-                        end_line=end_line,
-                        content=redact_secrets(chunk_text),
-                        content_hash=manager.compute_content_hash(chunk_text),
-                        embedding=await manager.embed_text(chunk_text),
-                    )
-                    chunks.append(chunk_record)
-                    
-            except Exception as e:
-                logger.error(f"Failed to process file {file_path}: {e}")
-                continue
+                chunk_record = ChunkRecord(
+                    repo=repo,
+                    pr_number=request.pr_number,
+                    head_sha=request.head_sha,
+                    source_type="code",
+                    path=chunk_data['path'],
+                    language=chunk_data['language'],
+                    symbol=chunk_data['symbol'],
+                    start_line=chunk_data['start_line'],
+                    end_line=chunk_data['end_line'],
+                    content=redact_secrets(chunk_data['content']),
+                    content_hash=manager.compute_content_hash(original_content),
+                    embedding=await manager.embed_text(chunk_data['content']),
+                )
+                chunks.append(chunk_record)
+                total_chunks += 1
         
         # Upsert chunks
         stats = await manager.upsert_chunks(chunks)
+        
+        logger.info(f"PR indexing complete: {stats['upserted']} upserted, {stats['skipped']} skipped")
         
         return {
             "stats": stats,
             "upserted_count": stats["upserted"],
             "skipped_count": stats["skipped"],
+            "files_considered": len(request.changed_files),
+            "files_indexed": len(prioritized_files),
+            "chunks_created": total_chunks
         }
         
     except Exception as e:
@@ -210,13 +228,17 @@ async def pr_index_search(
 
 @mcp.tool()
 async def repo_docs_build(repo_root: str) -> Dict[str, Any]:
-    """Build and index repository documentation"""
+    """Build and index repository documentation with optimized chunking"""
     try:
         manager = get_manager()
         repo = os.getenv("GITHUB_REPOSITORY", "unknown/repo")
         
+        # Load optimized chunking configuration
+        config = load_config()
+        chunker = SemanticChunker(config)
+        repo_root_path = Path(repo_root)
+        
         chunks = []
-        doc_chunker = DocumentChunker()
         
         # Paths to index
         doc_paths = [
@@ -229,43 +251,38 @@ async def repo_docs_build(repo_root: str) -> Dict[str, Any]:
         ]
         
         for pattern in doc_paths:
-            path = Path(repo_root) / pattern
-            for file_path in Path(repo_root).glob(pattern):
+            path = repo_root_path / pattern
+            for file_path in repo_root_path.glob(pattern):
                 if not file_path.is_file():
                     continue
+                
+                # Use optimized chunking with path filtering
+                file_chunks = chunker.chunk_file(
+                    file_path,
+                    source_type='repo_doc',
+                    relative_to=repo_root_path
+                )
+                
+                for chunk_data in file_chunks:
+                    # Extract original content for hashing
+                    original_content = chunk_data['original_content']
                     
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                    
-                    file_chunks = doc_chunker.chunk_document(content)
-                    
-                    for chunk_text, start_line, end_line in file_chunks:
-                        if not chunk_text.strip():
-                            continue
+                    chunk_record = ChunkRecord(
+                        repo=repo,
+                        pr_number=None,
+                        head_sha=None,
+                        source_type="repo_doc",
+                        path=chunk_data['path'],
+                        language="markdown",
+                        symbol=None,
+                        start_line=chunk_data['start_line'],
+                        end_line=chunk_data['end_line'],
+                        content=redact_secrets(chunk_data['content']),
+                        content_hash=manager.compute_content_hash(original_content),
+                        embedding=await manager.embed_text(chunk_data['content']),
+                    )
+                    chunks.append(chunk_record)
                         
-                        relative_path = str(file_path.relative_to(repo_root))
-                        
-                        chunk_record = ChunkRecord(
-                            repo=repo,
-                            pr_number=None,
-                            head_sha=None,
-                            source_type="repo_doc",
-                            path=relative_path,
-                            language="markdown",
-                            symbol=None,
-                            start_line=start_line,
-                            end_line=end_line,
-                            content=redact_secrets(chunk_text),
-                            content_hash=manager.compute_content_hash(chunk_text),
-                            embedding=await manager.embed_text(chunk_text),
-                        )
-                        chunks.append(chunk_record)
-                        
-                except Exception as e:
-                    logger.error(f"Failed to process doc file {file_path}: {e}")
-                    continue
-        
         stats = await manager.upsert_chunks(chunks)
         
         return {

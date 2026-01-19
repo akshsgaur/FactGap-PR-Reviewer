@@ -1,9 +1,11 @@
 """Indexing service for repositories and Notion pages"""
 
 import os
+import sys
 import logging
 from typing import List, Dict, Optional
 from datetime import datetime, timezone
+from pathlib import Path
 
 import openai
 from langchain_text_splitters import (
@@ -19,6 +21,10 @@ from app.services.notion_oauth import get_notion_service
 # New RAG modules
 from app.services.rag.enrichment import ChunkEnricher, extract_symbol_from_chunk
 from app.services.rag.embeddings import BatchEmbedder, compute_content_hash
+
+# Add factgap to path for optimized chunking
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent / 'factgap'))
+from chunking import SemanticChunker, load_config
 
 logger = logging.getLogger(__name__)
 

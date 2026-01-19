@@ -1,0 +1,50 @@
+# FactGap PR Reviewer Configuration
+# This file controls chunking and indexing behavior
+
+# Files and directories to ignore during indexing
+# Supports glob patterns with ** for recursive matching
+ignore_globs:
+  - 'node_modules/**'
+  - '.git/**'
+  - 'dist/**'
+  - 'build/**'
+  - '.next/**'
+  - 'out/**'
+  - 'coverage/**'
+  - 'venv/**'
+  - '.venv/**'
+  - '__pycache__/**'
+  - '*.min.js'
+  - '*.map'
+  - '*.lock'
+  - 'yarn.lock'
+  - 'package-lock.json'
+  - '.DS_Store'
+  - 'Thumbs.db'
+  - '*.log'
+  - '.env.*'
+  - 'tmp/**'
+  - 'temp/**'
+
+# Maximum file size to process (in bytes)
+# Files larger than this will be skipped (default: 1048576 = 1MB)
+max_file_bytes: 1048576
+
+# Limits for PR overlay indexing
+max_changed_files_indexed: 50
+max_total_chunks_per_run: 1500
+
+# Chunk sizes by source type
+chunk_sizes:
+  code:
+    chunk_size: 1200
+    overlap: 150
+  diff:
+    chunk_size: 800
+    overlap: 100
+  repo_doc:
+    chunk_size: 1000
+    overlap: 150
+  notion:
+    chunk_size: 1000
+    overlap: 150

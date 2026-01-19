@@ -48,6 +48,12 @@ cp .env.example .env
 
 # 5. Enable GitHub Actions
 # Copy .github/workflows/*.yml to your repo
+
+# 6. Index your repository (NEW: Fast by design)
+cd apps/api
+python index_repo_optimized.py /path/to/your/repo --repo-name your-repo-name
+# Only indexes factgap/, apps/, docs/, and root markdown files by default
+# Skips node_modules, .git, test files, and large files automatically
 ```
 
 ### Option 2: SaaS Platform (Multi-Tenant)
@@ -210,6 +216,72 @@ echo '{"comment":{"body":"@code-reviewer How does this work?"}}' | factgap-pr-ch
 - **[CLI Usage](./docs/cli.md)** - Command-line interface guide
 - **[API Reference](./docs/api.md)** - MCP server API docs
 - **[Deployment Guide](./docs/deployment.md)** - Production deployment
+
+## Indexing Performance: Fast by Design
+
+The new `index_repo_optimized.py` is **10-100x faster** than traditional indexing:
+
+### What Makes It Fast
+
+1. **Directory Pruning**: Never walks into `node_modules`, `.git`, `__pycache__`, etc.
+2. **Include Roots**: Only scans `factgap/`, `apps/`, `docs/`, and root markdown files
+3. **Early Filtering**: Skips unsupported extensions, binaries, and large files
+4. **Hard Caps**: Stops at 800 files and 5000 chunks by default
+
+### Before vs After
+
+```
+# Before: Scans everything
+Found 8724 files to process
+Skipped 9 files due to ignore patterns
+⏱️  Takes minutes, processes vendor/cache
+
+# After: Smart discovery  
+Directories visited: 44
+Files seen: 135
+Files included: 82
+Files skipped: 54 (ignored_dir_pruned: 1, unsupported: 49)
+⏱️  Takes seconds, only product code
+```
+
+### Configuration
+
+Create `.factgap/config.yml` to customize:
+
+```yaml
+# What to index (allowlist)
+include_roots:
+  - factgap/
+  - apps/
+  - docs/
+  - README.md
+  - SECURITY.md
+
+# What to never scan
+ignore_globs:
+  - node_modules/**
+  - .git/**
+  - __pycache__/**
+  - *.egg-info/**
+
+# Limits
+max_files: 800
+max_chunks: 5000
+max_file_bytes: 1048576  # 1MB
+
+# Include tests?
+include_tests: false
+```
+
+### Environment Overrides
+
+```bash
+# Include test files
+FACTGAP_INCLUDE_TESTS=true python index_repo_optimized.py ...
+
+# Custom ignore patterns
+FACTGAP_IGNORE_GLOBS="vendor/**,cache/**" python index_repo_optimized.py ...
+```
 
 ## Contributing
 
