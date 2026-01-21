@@ -4,18 +4,12 @@ This file provides guidance for AI coding agents working with the FactGap API ba
 
 ## Current Status
 
-**RAG Improvements Sprint: COMPLETE**
+**RAG Improvements Sprint: COMPLETE** 
+**User Dependencies Cleanup: COMPLETE** 
+**Debug Tools: COMPLETE** 
+**CLI Tools: COMPLETE** 
 
-The following modules have been implemented in `app/services/rag/`:
-- ✅ Intent classification (rules-based)
-- ✅ Scoped retrieval with score normalization
-- ✅ Reranking (Cohere + LLM fallback)
-- ✅ Diversity constraints
-- ✅ Chunk enrichment (contextual prefixes)
-- ✅ Batch embeddings with identity skip
-- ✅ Pipeline logging
-
-**Testing:** Use `compare_rag.py` to compare OLD vs NEW pipeline with existing embeddings.
+The FactGap PR Reviewer now has a fully functional RAG system with complete debugging capabilities!
 
 ## Overview
 

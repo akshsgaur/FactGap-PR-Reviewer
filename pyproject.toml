@@ -46,8 +46,8 @@ dev = [
 
 [project.scripts]
 factgap-mcp = "factgap.cli.mcp:main"
-factgap-pr-analyze = "factgap.cli.pr_analyze:main"
-factgap-pr-chat = "factgap.cli.pr_chat:main"
+factgap-pr-analyze = "factgap.cli.pr_analyze:cli"
+factgap-pr-chat = "factgap.cli.pr_chat:cli"
 
 [tool.setuptools.packages.find]
 where = ["."]
