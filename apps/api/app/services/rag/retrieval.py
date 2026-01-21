@@ -107,19 +107,20 @@ class ScopedRetriever:
             scopes.append(RetrievalScope(
                 scope_type=ScopeType.REPO_DOCS,
                 source_types=["code", "repo_doc"],
-                filters={"user_id": user_id, "repo": repo},
+                filters={"repo": repo},
                 k=30,
                 min_score=0.5,
             ))
 
-        # Notion scope
-        scopes.append(RetrievalScope(
-            scope_type=ScopeType.NOTION,
-            source_types=["notion"],
-            filters={"user_id": user_id},
-            k=30,
-            min_score=0.5,
-        ))
+        # Notion scope (only if user_id provided)
+        if user_id:
+            scopes.append(RetrievalScope(
+                scope_type=ScopeType.NOTION,
+                source_types=["notion"],
+                filters={"user_id": user_id},
+                k=30,
+                min_score=0.5,
+            ))
 
         return scopes
 
@@ -146,9 +147,14 @@ class ScopedRetriever:
                 params["p_pr_number"] = value
             elif key == "head_sha":
                 params["p_head_sha"] = value
+            elif key == "source_types":
+                params["p_source_types"] = value
+            elif key.startswith("p_"):
+                # Add other p_ parameters as-is
+                params[key] = value
 
         try:
-            response = self.supabase.rpc("match_chunks_user", params).execute()
+            response = self.supabase.rpc("match_chunks", params).execute()
             return response.data or []
         except Exception as e:
             logger.error(f"Error searching scope {scope.scope_type}: {e}")
